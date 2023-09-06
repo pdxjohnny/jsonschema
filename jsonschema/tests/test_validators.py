@@ -16,7 +16,11 @@ import warnings
 from attrs import define, field
 from referencing.jsonschema import DRAFT202012
 import referencing.exceptions
+import python_jwt
+import jwcrypto.jwk
+import datetime
 
+from jsonschema._keywords import jwt
 from jsonschema import (
     FormatChecker,
     TypeChecker,
@@ -536,6 +540,122 @@ class TestValidationErrorMessages(TestCase):
             schema={"pattern": "^a*$"},
         )
         self.assertEqual(message, "'bbb' does not match '^a*$'")
+
+    def test_is_not_jwt(self):
+        message = self.message_for(
+            instance=[],
+            schema={"type": "jwt"},
+        )
+        self.assertEqual(
+            message,
+            "[] does not match the given schema",
+        )
+
+    def test_jwt_algorithm(self):
+        for algorithm in [
+            "RS256",
+            "RS384",
+            "RS512",
+            "PS256",
+            "PS384",
+            "PS512",
+            "ES256",
+            "ES384",
+            "ES512",
+            "HS256",
+            "HS384",
+            "HS512",
+            "none",
+        ]:
+            with self.subTest(algorithm=algorithm):
+                message = self.message_for(
+                    instance="eyJ0eXAiOiJKV1QiLCJhbGciOiJSUzI1NiJ9.eyJzdWIiOiI0MjQyIiwibmFtZSI6Ikplc3NpY2EgVGVtcG9yYWwiLCJuaWNrbmFtZSI6Ikplc3MifQ.HgHJPl6b5W0CiDz4cNuyRcs5B3KgaoRbMvZBgCkcXOSOCAc0m7R10tSm6d86u8oW8NgzGoIAlKxBw0CIPhdx5N7MWTE2gshzQqhuq5MB9tNX1pYrLsiOMbibeMasvcf97Kd3JiLAzPPJe6XXB4PNL4h_4RcW6aCgUlRhGMPx1eRkGxAu6ndp5zzWiHQH2KVcpdVVdAwbTznLv3OLvcZqSZj_zemj__IAZPMkBBnhdjYPn-44p9-xrNmFZ9qBth4Ps1ZC1_A6lH77Mi1zb48Ou60SUT1-dhKLU09yY3IX8Pas6xtH6NbZ-e3FxjofO_OL47p25CvdqMYW50JVit2tjU6yzaoXde8JV3J40xuQqwZeP6gsClPJTdA-71PBoAYbjz58O-Aae8OlxfWZyPsyeCPQhog5KjwqsgHUQZp2zIE0Y50CEfoEzsSLRUbIklWNSP9_Vy3-pQAKlEpft0F-xP-fkSf9_AC4-81gVns6I_j4kSuyuRxlAJBe3pHi-yS2",
+                    schema={"type": "jwt", "jwt": {}},
+                )
+                self.assertEqual(
+                    message,
+                    "[] does not match the given schema",
+                )
+
+    def test_jwt_beepboop(self):
+        print()
+        key = jwcrypto.jwk.JWK.generate(kty="RSA", size=2048)
+
+        payload = {"sub": "feedface", "aud": "babebabe"}
+
+        jwt_algorithm = "PS256"
+
+        token = python_jwt.generate_jwt(
+            payload, key, jwt_algorithm, datetime.timedelta(minutes=5)
+        )
+
+        import jwt as pyJWT
+        token = pyJWT.encode({"some": "payload"}, key.export_to_pem(private_key=True, password=None), algorithm=jwt_algorithm)
+
+        # header, claims = python_jwt.verify_jwt(token, key, [jwt_algorithm])
+        # for k in payload: assert claims[k] == payload[k]
+
+        instance = {"token": token}
+        schema = {
+            "properties": {
+                "token": {
+                    "type": "string",
+                    "contentMediaType": "application/jwt",
+                    "contentSchema": {
+                        "type": "array",
+                        "minItems": 2,
+                        "items": [
+                            {
+                                "const": {
+                                    "typ": "JWT",
+                                    "alg": jwt_algorithm,
+                                }
+                            },
+                            {
+                                "type": "object",
+                                "required": ["iss", "exp"],
+                                "properties": {
+                                    "iss": {"type": "string"},
+                                    "exp": {"type": "integer"},
+                                }
+                            }
+                        ]
+                    }
+                },
+            },
+            "required": ["token"],
+            "jwt": {
+                "token": {
+                    "key": key.export_to_pem(),
+                    "algorithms": [jwt_algorithm],
+                },
+            },
+        }
+
+        Derived = validators.extend(
+            validators.Draft4Validator,
+            validators={
+                "jwt": jwt,
+            }
+        )
+        validator = Derived(schema)
+        # self.assertTrue(validator.is_valid(37))
+        print(validator)
+        errors = list(validator.iter_errors(instance))
+
+        self.assertTrue(errors, "Should have errors but none were yielded")
+
+        e1 = sorted_errors(errors)
+
+        print()
+        print(e1[0])
+        return
+
+        self.assertEqual(e1.path, deque(["token"]))
+
+        self.assertEqual(e1.json_path, "$.token")
+
+        self.assertEqual(e1.validator, "type")
 
     def test_does_not_contain(self):
         message = self.message_for(

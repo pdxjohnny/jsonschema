@@ -2,9 +2,11 @@ from __future__ import annotations
 
 from typing import Any, Callable, Mapping
 import numbers
+import contextlib
 
 from attrs import evolve, field, frozen
 from rpds import HashTrieMap
+from python_jwt import process_jwt
 
 from jsonschema.exceptions import UndefinedTypeCheck
 
@@ -55,6 +57,13 @@ def is_string(checker, instance):
 
 def is_any(checker, instance):
     return True
+
+
+def is_jwt(checker, instance):
+    with contextlib.suppress(Exception):
+        process_jwt(instance)
+        return True
+    return False
 
 
 @frozen(repr=False)
@@ -180,6 +189,7 @@ draft3_type_checker = TypeChecker(
         "null": is_null,
         "number": is_number,
         "string": is_string,
+        "jwt": is_jwt,
     },
 )
 draft4_type_checker = draft3_type_checker.remove("any")

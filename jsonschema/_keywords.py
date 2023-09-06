@@ -1,5 +1,8 @@
+from datetime import timedelta
 from fractions import Fraction
 import re
+
+import jwt as pyJWT
 
 from jsonschema._utils import (
     ensure_list,
@@ -446,4 +449,48 @@ def prefixItems(validator, prefixItems, instance, schema):
             schema=subschema,
             schema_path=index,
             path=index,
+        )
+
+
+def jwt(validator, jwt, instance, schema):
+    if not validator.is_type(instance, "object"):
+        return
+
+    if "jwt" not in schema:
+        return
+    jwt_schema = schema["jwt"]
+
+    for property, subinstance in instance.items():
+        if property not in jwt_schema:
+            continue
+        if not validator.is_type(instance[property], "jwt"):
+            continue
+
+        property_schema = jwt_schema[property]
+
+        claims = {}
+        try:
+            claims = pyJWT.decode(
+                subinstance,
+                key=property_schema.get("key", None),
+                algorithms=property_schema.get("algorithms", None),
+				require=property_schema.get("strict_aud", ["aud", "sub"]),
+				audience=property_schema.get("audience", None),
+				issuer=property_schema.get("issuer", None),
+				options={
+					"strict_aud": property_schema.get("strict_aud", True),
+				},
+				leeway=property_schema.get("leeway", True),
+            )
+        except pyJWT.PyJWTError as error:
+            yield ValidationError(
+                f"JWT verification error: {error}", validator="jwt", validator_value=str(error),
+            )
+        if not claims:
+            continue
+        yield from validator.descend(
+            claims,
+            schema,
+            path=property,
+            schema_path=property,
         )

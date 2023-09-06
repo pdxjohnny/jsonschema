@@ -272,7 +272,7 @@ def find_evaluated_property_keys_by_schema(validator, instance, schema):
         )
 
     for keyword in [
-        "properties", "additionalProperties", "unevaluatedProperties",
+        "properties", "additionalProperties", "unevaluatedProperties", "jwt",
     ]:
         if keyword in schema:
             schema_value = schema[keyword]
